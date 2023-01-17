@@ -1,0 +1,13 @@
+aspect AjStyleAspect {
+    //pointcut定义
+    pointcut query():call(public * get*());
+    pointcut update():call(public * update*());
+
+    //advice定义
+    before():query() {
+        System.out.println("before query");
+    }
+    after() returnInt():query() {
+        System.out.println("after query");
+    }
+}
