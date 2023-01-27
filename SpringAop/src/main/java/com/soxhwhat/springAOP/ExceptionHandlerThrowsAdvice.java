@@ -1,6 +1,7 @@
 package com.soxhwhat.springAOP;
 
 import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.ThrowsAdvice;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -16,6 +17,7 @@ import java.lang.reflect.Method;
  * @update [序号][日期YYYY-MM-DD] [更改人姓名][变更描述]
  */
 @Data
+@Slf4j
 public class ExceptionHandlerThrowsAdvice implements ThrowsAdvice {
     private JavaMailSender mailSender;
 
@@ -23,10 +25,11 @@ public class ExceptionHandlerThrowsAdvice implements ThrowsAdvice {
 
     public void afterThrowing(Method m, Object[] args, Object target, RuntimeException ex) {
         final String exceptionMessage = ex.getMessage();
-        getMailSender().send(message -> {
-            new MimeMessageHelper(message, true).setTo(recipients);
-//            message.setSubject("系统异常");
-        });
+//        getMailSender().send(message -> {
+//            new MimeMessageHelper(message, true).setTo(recipients);
+////            message.setSubject("系统异常");
+//        });
+        log.info("异常信息：{}", exceptionMessage);
     }
 
 }

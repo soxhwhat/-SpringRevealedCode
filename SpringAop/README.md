@@ -115,6 +115,7 @@ Advice实现了将被织入到Pointcut规定的JoinPoint处的横切逻辑。在
 per-class类型的Advice是指Advice实例在目标对象类的所有实例中都是同一个实例，通常只提供方法拦截的功能，不会为目标对象类保存任何状态或者添加新的特性。
 ![](src/main/resources/SpringAOP-2.png)
 
+
 ###### BeforeAdvice
 BeforeAdvice所实现的横切逻辑将在相应的Joinpoint之前执行，在Before Advice执行完成之后，程序执行流程将从Joinpoint处继续执行。
 
@@ -300,5 +301,176 @@ public interface DynamicIntroductionAdvice extends Advice {
 
 如果把每个目标对象实例都看作生产线上的牛奶，那么生产合格证就是新的属性，生产合格证的检查就是新的行为，IntroductionInterceptor就是执行这个操作的那个“人”，那么我们就可以通过IntroductionInterceptor来实现生产合格证的检查。
 
+#### Spring AOP的Aspect
+Aspect负责将Pointcut和Advice分门别类地装进箱子。
 
+Advisor代表Spring的Aspect，但通常只持有一个Pointcut和一个Advice.
 
+Advisor体系结构
+![](src/main/resources/SpringAOP-3.png)
+
+##### PointcutAdvisor
+大部分实现全都是PointcutAdvisor的部下。
+
+1. DefaultPointcutAdvisor
+```java
+public class DefaultPointcutAdvisor extends AbstractGenericPointcutAdvisor implements Serializable {
+    private Pointcut pointcut;
+
+    public DefaultPointcutAdvisor() {
+        this.pointcut = Pointcut.TRUE;
+    }
+
+    public DefaultPointcutAdvisor(Advice advice) {
+        this(Pointcut.TRUE, advice);
+    }
+
+    public DefaultPointcutAdvisor(Pointcut pointcut, Advice advice) {
+        this.pointcut = Pointcut.TRUE;
+        this.pointcut = pointcut;
+        this.setAdvice(advice);
+    }
+
+    public void setPointcut(@Nullable Pointcut pointcut) {
+        this.pointcut = pointcut != null ? pointcut : Pointcut.TRUE;
+    }
+
+    public Pointcut getPointcut() {
+        return this.pointcut;
+    }
+
+    public String toString() {
+        String var10000 = this.getClass().getName();
+        return var10000 + ": pointcut [" + this.getPointcut() + "]; advice [" + this.getAdvice() + "]";
+    }
+}
+```
+2. RegexpMethodPointcutAdvisor
+```java
+public class RegexpMethodPointcutAdvisor extends AbstractGenericPointcutAdvisor {
+    @Nullable
+    private String[] patterns;
+    @Nullable
+    private AbstractRegexpMethodPointcut pointcut;
+    private final Object pointcutMonitor = new SerializableMonitor();
+
+    public RegexpMethodPointcutAdvisor() {
+    }
+
+    public RegexpMethodPointcutAdvisor(Advice advice) {
+        this.setAdvice(advice);
+    }
+
+    public RegexpMethodPointcutAdvisor(String pattern, Advice advice) {
+        this.setPattern(pattern);
+        this.setAdvice(advice);
+    }
+
+    public RegexpMethodPointcutAdvisor(String[] patterns, Advice advice) {
+        this.setPatterns(patterns);
+        this.setAdvice(advice);
+    }
+
+    public void setPattern(String pattern) {
+        this.setPatterns(pattern);
+    }
+
+    public void setPatterns(String... patterns) {
+        this.patterns = patterns;
+    }
+
+    public Pointcut getPointcut() {
+        synchronized(this.pointcutMonitor) {
+            if (this.pointcut == null) {
+                this.pointcut = this.createPointcut();
+                if (this.patterns != null) {
+                    this.pointcut.setPatterns(this.patterns);
+                }
+            }
+
+            return this.pointcut;
+        }
+    }
+
+    protected AbstractRegexpMethodPointcut createPointcut() {
+        return new JdkRegexpMethodPointcut();
+    }
+
+    public String toString() {
+        String var10000 = this.getClass().getName();
+        return var10000 + ": advice [" + this.getAdvice() + "], pointcut patterns " + ObjectUtils.nullSafeToString(this.patterns);
+    }
+
+    private static class SerializableMonitor implements Serializable {
+        private SerializableMonitor() {
+        }
+    }
+}
+```
+RegexpMethodPointcutAdvisor是一个PointcutAdvisor的实现，它的作用是将一个Advice和一个Pointcut关联起来，这个Pointcut是一个RegexpMethodPointcut的实现，它的作用是匹配方法名是否符合正则表达式。
+3. NameMatchMethodPointcutAdvisor
+```java
+public class NameMatchMethodPointcutAdvisor extends AbstractGenericPointcutAdvisor {
+    private final NameMatchMethodPointcut pointcut = new NameMatchMethodPointcut();
+
+    public NameMatchMethodPointcutAdvisor() {
+    }
+
+    public NameMatchMethodPointcutAdvisor(Advice advice) {
+        this.setAdvice(advice);
+    }
+
+    public void setClassFilter(ClassFilter classFilter) {
+        this.pointcut.setClassFilter(classFilter);
+    }
+
+    public void setMappedName(String mappedName) {
+        this.pointcut.setMappedName(mappedName);
+    }
+
+    public void setMappedNames(String... mappedNames) {
+        this.pointcut.setMappedNames(mappedNames);
+    }
+
+    public NameMatchMethodPointcut addMethodName(String name) {
+        return this.pointcut.addMethodName(name);
+    }
+
+    public Pointcut getPointcut() {
+        return this.pointcut;
+    }
+}
+```
+
+NameMatchMethodPointcutAdvisor是一个Advisor，它持有一个NameMatchMethodPointcut，NameMatchMethodPointcut是一个Pointcut，实际上是操作所持有的这个NameMatchMethodPointcut实例。
+##### IntroductionAdvisor
+与PointcutAdvisor最本质上的区别就是IntroductionAdvisor持有的Advice是一个IntroductionInterceptor，也就是说，IntroductionAdvisor纯粹是为了Introduction而生的。
+
+#### Ordered的作用
+系统中只存在单一的横切关注点的情况比较少，大多时候都会有多个横切关注点需要处理，系统中就会有多个Advisor存在。当某些Advisor的Pointcut匹配到了某个方法时，就会在同一个Joinpoint执行这个Advisor所持有的Advice，这个时候就需要一个顺序来决定执行的顺序，否则系统的行为就会偏离我们的预想，这个顺序就是Ordered的作用。
+
+假设有两个Advisor，一个进行权限检查，当检查到当前调用没有权限的时候，抛出相应异常；另一个使用一个ThrowsAdvice对系统中的所有异常检测的异常进行拦截。
+
+Spring在处理同一个Joinpoint处的多个Advisor的时候，实际上会按照指定的顺序和优先级来执行它们，顺序号决定优先级，顺序号越小，优先级越高。默认情况下，我们不明确指定各个Advisor的执行顺序，那么Spring会按照它们的声明顺序来应用它们。最先声明的Advisor的优先级最高，最后声明的Advisor的优先级最低
+
+如果顺序不当就会导致，已经经过ThrowsAdvice处理过的异常，再次被权限检查的Advisor处理，这样就会导致异常被抛出，而不是被ThrowsAdvice处理。
+
+### Spring AOP的织入
+Spring AOP的织入是在Spring容器初始化的时候完成的，Spring AOP的织入是通过AopProxyFactory来完成的。ProxyFactory是最基本的一个织入器实现。
+
+#### 如何和ProxyFactory打交道
+SpringAOP是基于代理模式的AOP实现，织入过程完成后，会返回织入了横切逻辑的目标对象的代理对象。
+```
+ProxyFactory weaver = new ProxyFactory(yourTargetObject);
+Advisor advisor = new DefaultPointcutAdvisor(pointcut, advice);
+weaver.addAdvisor(advisor);
+Object proxy = weaver.getProxy();
+//现在可以使用proxy对象了
+```
+使用ProxyFactory来织入横切逻辑，
+
+1. 首先需要创建一个ProxyFactory实例，然后将目标对象设置到ProxyFactory中，
+2. 然后将Advisor添加到ProxyFactory中，最后调用ProxyFactory的getProxy()方法来获取代理对象。
+    2.1 还可以使用weaver.addAdvice(advice)直接指定各种类型的Advice。
+
+##### 基于接口的代理
